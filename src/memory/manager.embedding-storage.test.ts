@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getMemorySearchManager, type MemoryIndexManager } from "./index.js";
+import { migrateMemoryStoreToBlob } from "./store-migrate.js";
 
 vi.mock("./embeddings.js", () => {
   const embed = (text: string) => {
@@ -94,7 +95,7 @@ describe("memory embedding storage", () => {
     expect(cacheColumn?.type.toUpperCase()).toBe("BLOB");
   });
 
-  it("migrates legacy text(JSON) embeddings to blobs on startup", async () => {
+  it("repairs legacy text(JSON) embeddings during explicit store migration", async () => {
     const result = await getMemorySearchManager({
       cfg: cfgFor(workspaceDir, indexPath),
       agentId: "main",
@@ -126,6 +127,7 @@ describe("memory embedding storage", () => {
     await manager.close();
     manager = null;
 
+    // Schema gate: startup should skip row-value migration when schema already declares BLOB.
     const reopened = await getMemorySearchManager({
       cfg: cfgFor(workspaceDir, indexPath),
       agentId: "main",
@@ -135,6 +137,33 @@ describe("memory embedding storage", () => {
       throw new Error("manager missing");
     }
     manager = reopened.manager;
+    const unchangedDb = (manager as unknown as { db: { prepare: (sql: string) => unknown } }).db;
+    const unchanged = unchangedDb
+      .prepare(
+        "SELECT (SELECT typeof(embedding) FROM chunks LIMIT 1) AS chunksType, (SELECT typeof(embedding) FROM embedding_cache LIMIT 1) AS cacheType",
+      )
+      .get() as { chunksType: string; cacheType: string } | undefined;
+    expect(unchanged?.chunksType).toBe("text");
+    expect(unchanged?.cacheType).toBe("text");
+
+    await manager.close();
+    manager = null;
+
+    await migrateMemoryStoreToBlob({
+      dbPath: indexPath,
+      keepBackup: false,
+      vector: { enabled: false },
+    });
+
+    const migrated = await getMemorySearchManager({
+      cfg: cfgFor(workspaceDir, indexPath),
+      agentId: "main",
+    });
+    expect(migrated.manager).not.toBeNull();
+    if (!migrated.manager) {
+      throw new Error("manager missing");
+    }
+    manager = migrated.manager;
 
     const migratedDb = (manager as unknown as { db: { prepare: (sql: string) => unknown } }).db;
     const after = migratedDb

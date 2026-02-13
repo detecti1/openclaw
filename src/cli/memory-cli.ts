@@ -4,12 +4,15 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { resolveDefaultAgentId } from "../agents/agent-scope.js";
+import { resolveMemorySearchConfig } from "../agents/memory-search.js";
 import { loadConfig } from "../config/config.js";
 import { resolveStateDir } from "../config/paths.js";
 import { resolveSessionTranscriptsDirForAgent } from "../config/sessions/paths.js";
 import { setVerbose } from "../globals.js";
+import { resolveMemoryBackendConfig } from "../memory/backend-config.js";
 import { getMemorySearchManager, type MemorySearchManagerResult } from "../memory/index.js";
 import { listMemoryFiles, normalizeExtraMemoryPaths } from "../memory/internal.js";
+import { migrateMemoryStoreToBlob } from "../memory/store-migrate.js";
 import { defaultRuntime } from "../runtime.js";
 import { formatDocsLink } from "../terminal/links.js";
 import { colorize, isRich, theme } from "../terminal/theme.js";
@@ -40,6 +43,11 @@ type MemorySourceScan = {
   sources: SourceScan[];
   totalFiles: number | null;
   issues: string[];
+};
+
+type MemoryMigrateOptions = {
+  agent?: string;
+  backup?: boolean;
 };
 
 function formatSourceLabel(source: string, workspaceDir: string, agentId: string): string {
@@ -484,6 +492,51 @@ export async function runMemoryStatus(opts: MemoryCommandOptions) {
   }
 }
 
+async function runMemoryMigrate(opts: MemoryMigrateOptions): Promise<void> {
+  const cfg = loadConfig();
+  const agentIds = resolveAgentIds(cfg, opts.agent);
+  for (const agentId of agentIds) {
+    const backend = resolveMemoryBackendConfig({ cfg, agentId });
+    if (backend.backend !== "builtin") {
+      defaultRuntime.log(
+        `Memory migrate skipped (${agentId}): backend "${backend.backend}" is not sqlite.`,
+      );
+      continue;
+    }
+    const settings = resolveMemorySearchConfig(cfg, agentId);
+    if (!settings) {
+      defaultRuntime.log(`Memory migrate skipped (${agentId}): memory search disabled.`);
+      continue;
+    }
+    if (settings.store.driver !== "sqlite") {
+      defaultRuntime.log(`Memory migrate skipped (${agentId}): store driver is not sqlite.`);
+      continue;
+    }
+
+    try {
+      const result = await migrateMemoryStoreToBlob({
+        dbPath: settings.store.path,
+        keepBackup: opts.backup !== false,
+        vector: {
+          enabled: settings.store.vector.enabled,
+          extensionPath: settings.store.vector.extensionPath,
+        },
+      });
+      const backup = result.backupPath ? `, backup: ${shortenHomePath(result.backupPath)}` : "";
+      defaultRuntime.log(
+        `Memory migrate complete (${agentId}): ${shortenHomePath(result.dbPath)}${backup}`,
+      );
+      defaultRuntime.log(
+        `Converted embeddings (${agentId}): chunks=${result.chunksConverted}, cache=${result.cacheConverted}`,
+      );
+    } catch (err) {
+      const message = formatErrorMessage(err);
+      defaultRuntime.error(`Memory migrate failed (${agentId}): ${message}`);
+      process.exitCode = 1;
+    }
+  }
+}
+
 export function registerMemoryCli(program: Command) {
   const memory = program
     .command("memory")
@@ -642,6 +695,15 @@ export function registerMemoryCli(program: Command) {
           },
         });
       }
+    });
+
+  memory
+    .command("migrate")
+    .description("Migrate memory sqlite store to blob embeddings without reindex")
+    .option("--agent <id>", "Agent id (default: all configured agents)")
+    .option("--no-backup", "Do not keep the pre-migration database backup")
+    .action(async (opts: MemoryMigrateOptions) => {
+      await runMemoryMigrate(opts);
     });
 
   memory

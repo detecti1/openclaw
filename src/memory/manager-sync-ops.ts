@@ -277,14 +277,36 @@ class MemoryManagerSyncOps {
   }
 
   private migrateEmbeddingColumnsToBlob(): void {
-    const migratedChunks = this.migrateEmbeddingColumnToBlob("chunks");
-    const migratedCache = this.migrateEmbeddingColumnToBlob(EMBEDDING_CACHE_TABLE);
+    const migratedChunks = this.shouldMigrateEmbeddingColumnBySchema("chunks")
+      ? this.migrateEmbeddingColumnToBlob("chunks")
+      : 0;
+    const migratedCache = this.shouldMigrateEmbeddingColumnBySchema(EMBEDDING_CACHE_TABLE)
+      ? this.migrateEmbeddingColumnToBlob(EMBEDDING_CACHE_TABLE)
+      : 0;
     const total = migratedChunks + migratedCache;
     if (total > 0) {
       log.info(
         `memory embeddings storage migrated to blob values (chunks=${migratedChunks}, cache=${migratedCache})`,
       );
     }
+  }
+
+  private shouldMigrateEmbeddingColumnBySchema(
+    table: "chunks" | typeof EMBEDDING_CACHE_TABLE,
+  ): boolean {
+    const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+      name: string;
+      type?: string;
+    }>;
+    const embeddingColumn = columns.find((entry) => entry.name === "embedding");
+    if (!embeddingColumn) {
+      return true;
+    }
+    const declaredType = embeddingColumn.type?.trim().toUpperCase() ?? "";
+    if (declaredType.includes("BLOB")) {
+      return false;
+    }
+    return true;
   }
 
   private migrateEmbeddingColumnToBlob(table: "chunks" | typeof EMBEDDING_CACHE_TABLE): number {

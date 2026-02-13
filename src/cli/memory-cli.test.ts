@@ -4,6 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const getMemorySearchManager = vi.fn();
 const loadConfig = vi.fn(() => ({}));
 const resolveDefaultAgentId = vi.fn(() => "main");
+const resolveMemorySearchConfig = vi.fn();
+const resolveMemoryBackendConfig = vi.fn(() => ({ backend: "builtin", citations: "auto" }));
+const migrateMemoryStoreToBlob = vi.fn();
 
 vi.mock("../memory/index.js", () => ({
   getMemorySearchManager,
@@ -17,9 +20,25 @@ vi.mock("../agents/agent-scope.js", () => ({
   resolveDefaultAgentId,
 }));
 
+vi.mock("../agents/memory-search.js", () => ({
+  resolveMemorySearchConfig,
+}));
+
+vi.mock("../memory/backend-config.js", () => ({
+  resolveMemoryBackendConfig,
+}));
+
+vi.mock("../memory/store-migrate.js", () => ({
+  migrateMemoryStoreToBlob,
+}));
+
 afterEach(async () => {
   vi.restoreAllMocks();
   getMemorySearchManager.mockReset();
+  resolveMemorySearchConfig.mockReset();
+  resolveMemoryBackendConfig.mockReset();
+  resolveMemoryBackendConfig.mockReturnValue({ backend: "builtin", citations: "auto" });
+  migrateMemoryStoreToBlob.mockReset();
   process.exitCode = undefined;
   const { setVerbose } = await import("../globals.js");
   setVerbose(false);
@@ -363,5 +382,54 @@ describe("memory cli", () => {
     expect(close).toHaveBeenCalled();
     expect(error).toHaveBeenCalledWith(expect.stringContaining("Memory search failed: boom"));
     expect(process.exitCode).toBe(1);
+  });
+
+  it("runs memory migrate for builtin sqlite backend", async () => {
+    const { registerMemoryCli } = await import("./memory-cli.js");
+    const { defaultRuntime } = await import("../runtime.js");
+    resolveMemorySearchConfig.mockReturnValue({
+      store: {
+        driver: "sqlite",
+        path: "/tmp/memory.sqlite",
+        vector: { enabled: false },
+      },
+    });
+    migrateMemoryStoreToBlob.mockResolvedValue({
+      dbPath: "/tmp/memory.sqlite",
+      backupPath: "/tmp/memory.sqlite.backup-1",
+      chunksConverted: 3,
+      cacheConverted: 4,
+      vectorRebuilt: false,
+      ftsRebuilt: false,
+    });
+    const log = vi.spyOn(defaultRuntime, "log").mockImplementation(() => {});
+    const program = new Command();
+    program.name("test");
+    registerMemoryCli(program);
+    await program.parseAsync(["memory", "migrate"], { from: "user" });
+
+    expect(migrateMemoryStoreToBlob).toHaveBeenCalledWith({
+      dbPath: "/tmp/memory.sqlite",
+      keepBackup: true,
+      vector: {
+        enabled: false,
+        extensionPath: undefined,
+      },
+    });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("Memory migrate complete (main)"));
+  });
+
+  it("skips memory migrate for qmd backend", async () => {
+    const { registerMemoryCli } = await import("./memory-cli.js");
+    const { defaultRuntime } = await import("../runtime.js");
+    resolveMemoryBackendConfig.mockReturnValue({ backend: "qmd", citations: "auto" });
+    const log = vi.spyOn(defaultRuntime, "log").mockImplementation(() => {});
+    const program = new Command();
+    program.name("test");
+    registerMemoryCli(program);
+    await program.parseAsync(["memory", "migrate"], { from: "user" });
+
+    expect(migrateMemoryStoreToBlob).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('backend "qmd" is not sqlite'));
   });
 });
