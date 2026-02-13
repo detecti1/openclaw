@@ -1,9 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { truncateUtf16Safe } from "../utils.js";
-import { cosineSimilarity, parseEmbedding } from "./internal.js";
-
-const vectorToBlob = (embedding: number[]): Buffer =>
-  Buffer.from(new Float32Array(embedding).buffer);
+import { cosineSimilarity, embeddingToBlob, parseEmbedding } from "./internal.js";
 
 export type SearchSource = string;
 
@@ -44,7 +41,7 @@ export async function searchVector(params: {
           ` LIMIT ?`,
       )
       .all(
-        vectorToBlob(params.queryVec),
+        embeddingToBlob(params.queryVec),
         params.providerModel,
         ...params.sourceFilterVec.params,
         params.limit,
@@ -118,7 +115,7 @@ export function listChunks(params: {
     start_line: number;
     end_line: number;
     text: string;
-    embedding: string;
+    embedding: string | Uint8Array;
     source: SearchSource;
   }>;
 

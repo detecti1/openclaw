@@ -13,6 +13,7 @@ import { onSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import { resolveUserPath } from "../utils.js";
 import {
   buildFileEntry,
+  embeddingToBlob,
   ensureDir,
   isMemoryPath,
   listMemoryFiles,
@@ -267,10 +268,49 @@ class MemoryManagerSyncOps {
       ftsTable: FTS_TABLE,
       ftsEnabled: this.fts.enabled,
     });
+    this.migrateEmbeddingColumnsToBlob();
     this.fts.available = result.ftsAvailable;
     if (result.ftsError) {
       this.fts.loadError = result.ftsError;
       log.warn(`fts unavailable: ${result.ftsError}`);
+    }
+  }
+
+  private migrateEmbeddingColumnsToBlob(): void {
+    const migratedChunks = this.migrateEmbeddingColumnToBlob("chunks");
+    const migratedCache = this.migrateEmbeddingColumnToBlob(EMBEDDING_CACHE_TABLE);
+    const total = migratedChunks + migratedCache;
+    if (total > 0) {
+      log.info(
+        `memory embeddings storage migrated to blob values (chunks=${migratedChunks}, cache=${migratedCache})`,
+      );
+    }
+  }
+
+  private migrateEmbeddingColumnToBlob(table: "chunks" | typeof EMBEDDING_CACHE_TABLE): number {
+    const select = this.db.prepare(
+      `SELECT rowid, embedding FROM ${table} WHERE typeof(embedding) = 'text' LIMIT 500`,
+    );
+    const update = this.db.prepare(`UPDATE ${table} SET embedding = ? WHERE rowid = ?`);
+    let migrated = 0;
+    while (true) {
+      const rows = select.all() as Array<{ rowid: number; embedding: string }>;
+      if (rows.length === 0) {
+        return migrated;
+      }
+      this.db.exec("BEGIN");
+      try {
+        for (const row of rows) {
+          update.run(embeddingToBlob(parseEmbedding(row.embedding)), row.rowid);
+          migrated += 1;
+        }
+        this.db.exec("COMMIT");
+      } catch (err) {
+        try {
+          this.db.exec("ROLLBACK");
+        } catch {}
+        throw err;
+      }
     }
   }
 

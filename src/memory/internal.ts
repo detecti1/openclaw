@@ -267,7 +267,42 @@ export function remapChunkLines(chunks: MemoryChunk[], lineMap: number[] | undef
   }
 }
 
-export function parseEmbedding(raw: string): number[] {
+const FLOAT32_BYTES = 4;
+
+export function embeddingToBlob(embedding: number[]): Uint8Array {
+  const bytes = new Uint8Array(embedding.length * FLOAT32_BYTES);
+  const view = new DataView(bytes.buffer);
+  for (let i = 0; i < embedding.length; i += 1) {
+    const value = embedding[i] ?? 0;
+    view.setFloat32(i * FLOAT32_BYTES, Number.isFinite(value) ? value : 0, true);
+  }
+  return bytes;
+}
+
+function parseEmbeddingBlob(raw: Uint8Array): number[] {
+  if (raw.length === 0 || raw.length % FLOAT32_BYTES !== 0) {
+    return [];
+  }
+  const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+  const out: number[] = Array.from({ length: raw.length / FLOAT32_BYTES });
+  for (let i = 0; i < out.length; i += 1) {
+    out[i] = view.getFloat32(i * FLOAT32_BYTES, true);
+  }
+  return out;
+}
+
+export function parseEmbedding(
+  raw: string | Uint8Array | ArrayBuffer | null | undefined,
+): number[] {
+  if (raw instanceof Uint8Array) {
+    return parseEmbeddingBlob(raw);
+  }
+  if (raw instanceof ArrayBuffer) {
+    return parseEmbeddingBlob(new Uint8Array(raw));
+  }
+  if (typeof raw !== "string") {
+    return [];
+  }
   try {
     const parsed = JSON.parse(raw) as number[];
     return Array.isArray(parsed) ? parsed : [];

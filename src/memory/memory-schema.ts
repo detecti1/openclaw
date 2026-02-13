@@ -31,7 +31,7 @@ export function ensureMemoryIndexSchema(params: {
       hash TEXT NOT NULL,
       model TEXT NOT NULL,
       text TEXT NOT NULL,
-      embedding TEXT NOT NULL,
+      embedding BLOB NOT NULL,
       updated_at INTEGER NOT NULL
     );
   `);
@@ -41,7 +41,7 @@ export function ensureMemoryIndexSchema(params: {
       model TEXT NOT NULL,
       provider_key TEXT NOT NULL,
       hash TEXT NOT NULL,
-      embedding TEXT NOT NULL,
+      embedding BLOB NOT NULL,
       dims INTEGER,
       updated_at INTEGER NOT NULL,
       PRIMARY KEY (provider, model, provider_key, hash)

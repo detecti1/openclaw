@@ -4,8 +4,10 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   chunkMarkdown,
+  embeddingToBlob,
   listMemoryFiles,
   normalizeExtraMemoryPaths,
+  parseEmbedding,
   remapChunkLines,
 } from "./internal.js";
 
@@ -188,5 +190,20 @@ describe("remapChunkLines", () => {
     for (const chunk of chunks) {
       expect(chunk.startLine).toBeLessThanOrEqual(chunk.endLine);
     }
+  });
+});
+
+describe("parseEmbedding", () => {
+  it("parses JSON encoded vectors", () => {
+    expect(parseEmbedding("[1,2,3]")).toEqual([1, 2, 3]);
+  });
+
+  it("parses float32 blobs", () => {
+    const blob = embeddingToBlob([1, -2.5, 3.25]);
+    expect(parseEmbedding(blob)).toEqual([1, -2.5, 3.25]);
+  });
+
+  it("returns an empty vector for malformed blobs", () => {
+    expect(parseEmbedding(new Uint8Array([1, 2, 3]))).toEqual([]);
   });
 });

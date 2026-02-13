@@ -15,6 +15,7 @@ import { enforceEmbeddingMaxInputTokens } from "./embedding-chunk-limits.js";
 import { estimateUtf8Bytes } from "./embedding-input-limits.js";
 import {
   chunkMarkdown,
+  embeddingToBlob,
   hashText,
   parseEmbedding,
   remapChunkLines,
@@ -35,9 +36,6 @@ const EMBEDDING_QUERY_TIMEOUT_REMOTE_MS = 60_000;
 const EMBEDDING_QUERY_TIMEOUT_LOCAL_MS = 5 * 60_000;
 const EMBEDDING_BATCH_TIMEOUT_REMOTE_MS = 2 * 60_000;
 const EMBEDDING_BATCH_TIMEOUT_LOCAL_MS = 10 * 60_000;
-
-const vectorToBlob = (embedding: number[]): Buffer =>
-  Buffer.from(new Float32Array(embedding).buffer);
 
 const log = createSubsystemLogger("memory");
 
@@ -105,7 +103,7 @@ class MemoryManagerEmbeddingOps {
           `SELECT hash, embedding FROM ${EMBEDDING_CACHE_TABLE}\n` +
             ` WHERE provider = ? AND model = ? AND provider_key = ? AND hash IN (${placeholders})`,
         )
-        .all(...baseParams, ...batch) as Array<{ hash: string; embedding: string }>;
+        .all(...baseParams, ...batch) as Array<{ hash: string; embedding: string | Uint8Array }>;
       for (const row of rows) {
         out.set(row.hash, parseEmbedding(row.embedding));
       }
@@ -136,7 +134,7 @@ class MemoryManagerEmbeddingOps {
         this.provider.model,
         this.providerKey,
         entry.hash,
-        JSON.stringify(embedding),
+        embeddingToBlob(embedding),
         embedding.length,
         now,
       );
@@ -744,7 +742,7 @@ class MemoryManagerEmbeddingOps {
           chunk.hash,
           this.provider.model,
           chunk.text,
-          JSON.stringify(embedding),
+          embeddingToBlob(embedding),
           now,
         );
       if (vectorReady && embedding.length > 0) {
@@ -753,7 +751,7 @@ class MemoryManagerEmbeddingOps {
         } catch {}
         this.db
           .prepare(`INSERT INTO ${VECTOR_TABLE} (id, embedding) VALUES (?, ?)`)
-          .run(id, vectorToBlob(embedding));
+          .run(id, embeddingToBlob(embedding));
       }
       if (this.fts.enabled && this.fts.available) {
         this.db
