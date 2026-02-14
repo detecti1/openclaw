@@ -269,6 +269,12 @@ export function remapChunkLines(chunks: MemoryChunk[], lineMap: number[] | undef
 
 const FLOAT32_BYTES = 4;
 
+const isLittleEndian: boolean = (() => {
+  const buffer = new ArrayBuffer(2);
+  new DataView(buffer).setInt16(0, 1, true /* littleEndian */);
+  return new Int16Array(buffer)[0] === 1;
+})();
+
 export function embeddingToBlob(embedding: number[]): Uint8Array {
   const bytes = new Uint8Array(embedding.length * FLOAT32_BYTES);
   const view = new DataView(bytes.buffer);
@@ -283,6 +289,12 @@ function parseEmbeddingBlob(raw: Uint8Array): number[] {
   if (raw.length === 0 || raw.length % FLOAT32_BYTES !== 0) {
     return [];
   }
+
+  if (isLittleEndian && raw.byteOffset % FLOAT32_BYTES === 0) {
+    const floatView = new Float32Array(raw.buffer, raw.byteOffset, raw.length / FLOAT32_BYTES);
+    return Array.from(floatView);
+  }
+
   const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
   const out: number[] = Array.from({ length: raw.length / FLOAT32_BYTES });
   for (let i = 0; i < out.length; i += 1) {

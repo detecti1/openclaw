@@ -203,6 +203,40 @@ describe("parseEmbedding", () => {
     expect(parseEmbedding(blob)).toEqual([1, -2.5, 3.25]);
   });
 
+  it("parses ArrayBuffer embeddings", () => {
+    const blob = embeddingToBlob([0.5, 1.25, -3.75]);
+    expect(parseEmbedding(blob.buffer)).toEqual([0.5, 1.25, -3.75]);
+  });
+
+  it("parses a known little-endian float32 payload correctly", () => {
+    const raw = new Uint8Array(12);
+    const view = new DataView(raw.buffer);
+    view.setFloat32(0, 1.5, true);
+    view.setFloat32(4, -2.25, true);
+    view.setFloat32(8, 42.125, true);
+    expect(parseEmbedding(raw)).toEqual([1.5, -2.25, 42.125]);
+  });
+
+  it("parses unaligned Uint8Array views", () => {
+    const blob = embeddingToBlob([1, -2.5, 3.25]);
+    const prefixed = new Uint8Array(blob.length + 1);
+    prefixed[0] = 255;
+    prefixed.set(blob, 1);
+    const unaligned = prefixed.subarray(1);
+    expect(unaligned.byteOffset % 4).not.toBe(0);
+    expect(parseEmbedding(unaligned)).toEqual([1, -2.5, 3.25]);
+  });
+
+  it("keeps vector order and length for multi-value blobs", () => {
+    const input = [0, 1, -1, 3.5, 9, -8.25, 100];
+    const blob = embeddingToBlob(input);
+    expect(parseEmbedding(blob)).toEqual(input);
+  });
+
+  it("parses an empty blob as an empty vector", () => {
+    expect(parseEmbedding(new Uint8Array(0))).toEqual([]);
+  });
+
   it("returns an empty vector for malformed blobs", () => {
     expect(parseEmbedding(new Uint8Array([1, 2, 3]))).toEqual([]);
   });
