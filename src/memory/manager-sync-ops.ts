@@ -23,7 +23,7 @@ import {
   runWithConcurrency,
   type MemoryFileEntry,
 } from "./internal.js";
-import { ensureMemoryIndexSchema } from "./memory-schema.js";
+import { ensureMemoryIndexSchema, getMemoryEmbeddingSchemaStatus } from "./memory-schema.js";
 import {
   buildSessionEntry,
   listSessionFilesForAgent,
@@ -277,6 +277,15 @@ class MemoryManagerSyncOps {
   }
 
   private migrateEmbeddingColumnsToBlob(): void {
+    const schemaStatus = getMemoryEmbeddingSchemaStatus({
+      db: this.db,
+      embeddingCacheTable: EMBEDDING_CACHE_TABLE,
+    });
+    if (schemaStatus.needsLegacyScan) {
+      log.warn(
+        `memory embedding schema is legacy (chunks=${schemaStatus.chunks}, cache=${schemaStatus.cache}); startup may perform extra embedding type scans. Run "openclaw memory migrate" to finalize blob schema migration.`,
+      );
+    }
     const migratedChunks = this.shouldMigrateEmbeddingColumnBySchema("chunks")
       ? this.migrateEmbeddingColumnToBlob("chunks")
       : 0;

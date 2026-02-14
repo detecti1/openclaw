@@ -145,6 +145,7 @@ describe("memory cli", () => {
           provider: "openai",
           model: "text-embedding-3-small",
           requestedProvider: "openai",
+          embeddingSchema: { chunks: "legacy", cache: "blob", needsLegacyScan: true },
           vector: { enabled: true, available: true },
         }),
         close,
@@ -159,6 +160,9 @@ describe("memory cli", () => {
 
     expect(probeEmbeddingAvailability).toHaveBeenCalled();
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Embeddings: ready"));
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("Migration: recommended: openclaw memory migrate"),
+    );
     expect(close).toHaveBeenCalled();
   });
 

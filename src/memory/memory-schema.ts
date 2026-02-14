@@ -1,4 +1,15 @@
 import type { DatabaseSync } from "node:sqlite";
+import fs from "node:fs";
+import { resolveUserPath } from "../utils.js";
+import { requireNodeSqlite } from "./sqlite.js";
+
+export type EmbeddingColumnSchemaState = "blob" | "legacy" | "missing";
+
+export type MemoryEmbeddingSchemaStatus = {
+  chunks: EmbeddingColumnSchemaState;
+  cache: EmbeddingColumnSchemaState;
+  needsLegacyScan: boolean;
+};
 
 export function ensureMemoryIndexSchema(params: {
   db: DatabaseSync;
@@ -93,4 +104,54 @@ function ensureColumn(
     return;
   }
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
+export function getMemoryEmbeddingSchemaStatus(params: {
+  db: DatabaseSync;
+  embeddingCacheTable: string;
+}): MemoryEmbeddingSchemaStatus {
+  const chunks = getEmbeddingColumnSchemaState(params.db, "chunks");
+  const cache = getEmbeddingColumnSchemaState(params.db, params.embeddingCacheTable);
+  const needsLegacyScan = chunks !== "blob" || cache !== "blob";
+  return { chunks, cache, needsLegacyScan };
+}
+
+export function readMemoryEmbeddingSchemaStatusFromPath(params: {
+  dbPath: string;
+  embeddingCacheTable: string;
+}): MemoryEmbeddingSchemaStatus | null {
+  const resolvedPath = resolveUserPath(params.dbPath);
+  if (!fs.existsSync(resolvedPath)) {
+    return null;
+  }
+  try {
+    const { DatabaseSync } = requireNodeSqlite();
+    const db = new DatabaseSync(resolvedPath, { allowExtension: false });
+    try {
+      return getMemoryEmbeddingSchemaStatus({
+        db,
+        embeddingCacheTable: params.embeddingCacheTable,
+      });
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
+function getEmbeddingColumnSchemaState(
+  db: DatabaseSync,
+  table: string,
+): EmbeddingColumnSchemaState {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+    name: string;
+    type?: string;
+  }>;
+  const embeddingColumn = columns.find((entry) => entry.name === "embedding");
+  if (!embeddingColumn) {
+    return "missing";
+  }
+  const declaredType = embeddingColumn.type?.trim().toUpperCase() ?? "";
+  return declaredType.includes("BLOB") ? "blob" : "legacy";
 }

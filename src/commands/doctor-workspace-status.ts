@@ -1,12 +1,17 @@
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
+import { resolveMemorySearchConfig } from "../agents/memory-search.js";
 import { buildWorkspaceSkillStatus } from "../agents/skills-status.js";
+import { formatCliCommand } from "../cli/command-format.js";
+import { resolveMemoryBackendConfig } from "../memory/backend-config.js";
+import { readMemoryEmbeddingSchemaStatusFromPath } from "../memory/memory-schema.js";
 import { loadOpenClawPlugins } from "../plugins/loader.js";
 import { note } from "../terminal/note.js";
 import { detectLegacyWorkspaceDirs, formatLegacyWorkspaceWarning } from "./doctor-workspace.js";
 
 export function noteWorkspaceStatus(cfg: OpenClawConfig) {
-  const workspaceDir = resolveAgentWorkspaceDir(cfg, resolveDefaultAgentId(cfg));
+  const agentId = resolveDefaultAgentId(cfg);
+  const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
   const legacyWorkspace = detectLegacyWorkspaceDirs({ workspaceDir });
   if (legacyWorkspace.legacyDirs.length > 0) {
     note(formatLegacyWorkspaceWarning(legacyWorkspace), "Extra workspace");
@@ -62,6 +67,25 @@ export function noteWorkspaceStatus(cfg: OpenClawConfig) {
       return `- ${prefix}${plugin}: ${diag.message}${source}`;
     });
     note(lines.join("\n"), "Plugin diagnostics");
+  }
+
+  const backend = resolveMemoryBackendConfig({ cfg, agentId });
+  const memorySettings = resolveMemorySearchConfig(cfg, agentId);
+  if (backend.backend === "builtin" && memorySettings && memorySettings.store.driver === "sqlite") {
+    const schema = readMemoryEmbeddingSchemaStatusFromPath({
+      dbPath: memorySettings.store.path,
+      embeddingCacheTable: "embedding_cache",
+    });
+    if (schema?.needsLegacyScan) {
+      note(
+        [
+          `Legacy embedding schema detected (chunks=${schema.chunks}, cache=${schema.cache}).`,
+          "Startup may pay extra dynamic-type scan cost until schema migration is completed.",
+          `Run: ${formatCliCommand("openclaw memory migrate")}`,
+        ].join("\n"),
+        "Memory schema",
+      );
+    }
   }
 
   return { workspaceDir };

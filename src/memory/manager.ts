@@ -28,6 +28,7 @@ import { isMemoryPath, normalizeExtraMemoryPaths } from "./internal.js";
 import { memoryManagerEmbeddingOps } from "./manager-embedding-ops.js";
 import { searchKeyword, searchVector } from "./manager-search.js";
 import { memoryManagerSyncOps } from "./manager-sync-ops.js";
+import { getMemoryEmbeddingSchemaStatus } from "./memory-schema.js";
 const SNIPPET_MAX_CHARS = 700;
 const VECTOR_TABLE = "chunks_vec";
 const FTS_TABLE = "chunks_fts";
@@ -493,6 +494,10 @@ export class MemoryIndexManager implements MemorySearchManager {
         lastError: this.batchFailureLastError,
         lastProvider: this.batchFailureLastProvider,
       },
+      embeddingSchema: getMemoryEmbeddingSchemaStatus({
+        db: this.db,
+        embeddingCacheTable: EMBEDDING_CACHE_TABLE,
+      }),
     };
   }
 

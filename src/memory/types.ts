@@ -1,4 +1,5 @@
 export type MemorySource = "memory" | "sessions";
+export type EmbeddingColumnSchemaState = "blob" | "legacy" | "missing";
 
 export type MemorySearchResult = {
   path: string;
@@ -54,6 +55,11 @@ export type MemoryProviderStatus = {
     timeoutMs: number;
     lastError?: string;
     lastProvider?: string;
+  };
+  embeddingSchema?: {
+    chunks: EmbeddingColumnSchemaState;
+    cache: EmbeddingColumnSchemaState;
+    needsLegacyScan: boolean;
   };
   custom?: Record<string, unknown>;
 };

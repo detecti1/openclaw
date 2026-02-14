@@ -346,6 +346,7 @@ export async function runMemoryStatus(opts: MemoryCommandOptions) {
   }
 
   const rich = isRich();
+  const deepMode = Boolean(opts.deep || opts.index);
   const heading = (text: string) => colorize(rich, theme.heading, text);
   const muted = (text: string) => colorize(rich, theme.muted, text);
   const info = (text: string) => colorize(rich, theme.info, text);
@@ -386,6 +387,19 @@ export async function runMemoryStatus(opts: MemoryCommandOptions) {
       `${label("Store")} ${info(storePath)}`,
       `${label("Workspace")} ${info(workspacePath)}`,
     ].filter(Boolean) as string[];
+    if (deepMode && status.embeddingSchema) {
+      const schemaState = status.embeddingSchema.needsLegacyScan ? "legacy" : "blob";
+      const schemaColor = status.embeddingSchema.needsLegacyScan ? theme.warn : theme.success;
+      lines.push(`${label("Embedding schema")} ${colorize(rich, schemaColor, schemaState)}`);
+      lines.push(
+        `${label("Schema detail")} ${muted(
+          `chunks=${status.embeddingSchema.chunks}, cache=${status.embeddingSchema.cache}`,
+        )}`,
+      );
+      if (status.embeddingSchema.needsLegacyScan) {
+        lines.push(`${label("Migration")} ${warn("recommended: openclaw memory migrate")}`);
+      }
+    }
     if (embeddingProbe) {
       const state = embeddingProbe.ok ? "ready" : "unavailable";
       const stateColor = embeddingProbe.ok ? theme.success : theme.warn;
